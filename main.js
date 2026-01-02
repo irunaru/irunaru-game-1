@@ -33,12 +33,17 @@ function preload() {
 }
 
 function create() {
-    // 1. 키보드 입력 활성화
+    // 1. 키보드 설정 및 포커스 획득
     cursors = this.input.keyboard.createCursorKeys();
     fireButton = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    this.input.keyboard.enabled = true;
+    
+    // 게임 화면 클릭 시 브라우저 포커스를 게임으로 고정 (PC 키보드 필수)
+    this.input.on('pointerdown', () => {
+        if (!game.input.keyboard.enabled) game.input.keyboard.enabled = true;
+        window.focus();
+    });
 
-    // 2. 아이템 이미지 생성
+    // 2. 하트 텍스처 생성
     const graphics = this.make.graphics({ x: 0, y: 0, add: false });
     graphics.fillStyle(0xff0000, 1);
     graphics.fillCircle(10, 10, 10); 
@@ -53,7 +58,7 @@ function create() {
         frequency: -1
     });
 
-    // 4. 오브젝트 생성
+    // 4. 물리 객체 그룹
     player = this.physics.add.sprite(this.scale.width / 2, this.scale.height - 80, 'player');
     player.setCollideWorldBounds(true);
 
@@ -64,13 +69,12 @@ function create() {
 
     createWave(this);
 
-    // 5. 터치/클릭 입력
+    // 5. 터치/클릭 발사
     this.input.on('pointerdown', (pointer) => {
         if (gameOver) { 
             restartGame(this);
             return; 
         }
-        if (window.focus) window.focus();
         fireBullet(this);
     });
 
@@ -79,18 +83,11 @@ function create() {
     this.physics.add.overlap(enemyBullets, player, damagePlayer, null, this);
     this.physics.add.overlap(items, player, collectItem, null, this);
 
-    // 7. UI 설정
+    // 7. UI
     const style = { fontSize: '22px', fill: '#fff', fontFamily: 'Arial', fontWeight: 'bold' };
     hpText = this.add.text(20, 20, `HP: ❤️ ${playerHP}`, style).setDepth(100);
     scoreText = this.add.text(20, 50, `SCORE: ${score}`, style).setDepth(100);
     waveText = this.add.text(20, 80, `WAVE: ${wave}`, style).setDepth(100);
-
-    // 8. 화면 크기 변경 대응
-    this.scale.on('resize', (gameSize) => {
-        if (player && player.active) {
-            player.setPosition(gameSize.width / 2, gameSize.height - 80);
-        }
-    });
 }
 
 function update() {
@@ -99,16 +96,15 @@ function update() {
     let isMoving = false;
     const moveSpeed = 450;
 
-    // PC 조작 - 방향키
-    if (cursors && (cursors.left.isDown || cursors.right.isDown)) {
-        if (cursors.left.isDown) {
-            player.setVelocityX(-moveSpeed);
-        } else if (cursors.right.isDown) {
-            player.setVelocityX(moveSpeed);
-        }
+    // PC 방향키 우선 체크
+    if (cursors.left.isDown) {
+        player.setVelocityX(-moveSpeed);
+        isMoving = true;
+    } else if (cursors.right.isDown) {
+        player.setVelocityX(moveSpeed);
         isMoving = true;
     } 
-    // 모바일/마우스 조작 - 터치
+    // 터치 이동 체크 (방향키 안 누를 때)
     else if (this.input.activePointer.isDown) {
         if (this.input.activePointer.x < this.scale.width / 2) {
             player.setVelocityX(-moveSpeed);
@@ -118,45 +114,34 @@ function update() {
         isMoving = true;
     }
 
-    if (!isMoving) {
-        player.setVelocityX(0);
-    }
+    if (!isMoving) player.setVelocityX(0);
 
-    // PC 조작 - 스페이스바
-    if (fireButton && Phaser.Input.Keyboard.JustDown(fireButton)) {
+    // PC 스페이스바 발사
+    if (Phaser.Input.Keyboard.JustDown(fireButton)) {
         fireBullet(this);
     }
 
-    // 총알 정리
-    bullets.children.each(b => {
-        if (b.active && b.y < -50) b.disableBody(true, true);
-    });
-    enemyBullets.children.each(b => {
-        if (b.active && b.y > this.scale.height + 50) b.disableBody(true, true);
-    });
+    // 오브젝트 정리
+    bullets.children.each(b => { if (b.active && b.y < -50) b.disableBody(true, true); });
+    enemyBullets.children.each(b => { if (b.active && b.y > this.scale.height + 50) b.disableBody(true, true); });
 
-    // 적 행동
+    // 적 행동 로직
     aliens.children.each(alien => {
         if (!alien.active) return;
         alien.y += 0.3 + (wave * 0.1); 
-        if (Math.random() < 0.003 + (wave * 0.001)) {
-            enemyShoot(this, alien);
-        }
-        if (alien.y > this.scale.height) {
-            endGame(this);
-        }
+        if (Math.random() < 0.003 + (wave * 0.001)) enemyShoot(this, alien);
+        if (alien.y > this.scale.height) endGame(this);
     });
 }
 
 function fireBullet(scene) {
-    if (!scene || !scene.time || !player || !player.active) return;
+    if (!player || !player.active) return;
     if (scene.time.now - lastFired < 200) return;
     lastFired = scene.time.now;
     
     const b = bullets.get(player.x, player.y - 40);
     if (b) {
-        b.setActive(true).setVisible(true);
-        b.body.enable = true;
+        b.setActive(true).setVisible(true).body.enable = true;
         b.setVelocityY(-800);
     }
 }
@@ -164,7 +149,6 @@ function fireBullet(scene) {
 function destroyAlien(bullet, alien) {
     bullet.disableBody(true, true);
     particles.emitParticleAt(alien.x, alien.y, 10);
-    
     score += 10;
     scoreText.setText(`SCORE: ${score}`);
     
@@ -174,9 +158,8 @@ function destroyAlien(bullet, alien) {
     }
     
     alien.destroy();
-    
     if (aliens.countActive(true) === 0) {
-        nextWave(this.scene);
+        nextWave(this); // this로 수정
     }
 }
 
@@ -184,15 +167,9 @@ function damagePlayer(p, b) {
     b.destroy();
     playerHP--;
     hpText.setText(`HP: ❤️ ${playerHP}`);
-    
     p.setTint(0xff0000);
-    p.scene.time.delayedCall(150, () => { 
-        if (p.active) p.clearTint(); 
-    });
-    
-    if (playerHP <= 0) {
-        endGame(p.scene);
-    }
+    p.scene.time.delayedCall(150, () => { if (p.active) p.clearTint(); });
+    if (playerHP <= 0) endGame(p.scene);
 }
 
 function collectItem(p, i) {
@@ -204,8 +181,7 @@ function collectItem(p, i) {
 function createWave(scene) {
     const rows = Math.min(3 + Math.floor(wave / 3), 6);
     const cols = Math.floor(scene.scale.width / 80);
-    const startX = scene.scale.width / 2 - (cols * 35);
-    
+    const startX = (scene.scale.width - (cols - 1) * 70) / 2;
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
             aliens.create(startX + (c * 70), 80 + (r * 60), 'alien');
@@ -216,25 +192,15 @@ function createWave(scene) {
 function nextWave(scene) {
     wave++;
     waveText.setText(`WAVE: ${wave}`);
-    
-    const msg = scene.add.text(
-        scene.scale.width / 2, 
-        scene.scale.height / 2, 
-        `WAVE ${wave - 1} CLEAR!`, 
-        { fontSize: '40px', fill: '#ffff00', fontFamily: 'Arial', fontWeight: 'bold' }
-    ).setOrigin(0.5).setDepth(200);
-    
-    scene.time.delayedCall(1500, () => { 
-        msg.destroy(); 
-        createWave(scene); 
-    });
+    const msg = scene.add.text(scene.scale.width / 2, scene.scale.height / 2, `WAVE ${wave - 1} CLEAR!`, 
+        { fontSize: '40px', fill: '#ffff00', fontWeight: 'bold' }).setOrigin(0.5).setDepth(200);
+    scene.time.delayedCall(1500, () => { msg.destroy(); createWave(scene); });
 }
 
 function enemyShoot(scene, alien) {
     const b = enemyBullets.get(alien.x, alien.y + 20);
     if (b) {
-        b.setActive(true).setVisible(true);
-        b.body.enable = true;
+        b.setActive(true).setVisible(true).body.enable = true;
         b.setVelocityY(300 + (wave * 20));
         b.setTint(0xffff00);
     }
@@ -242,54 +208,20 @@ function enemyShoot(scene, alien) {
 
 function endGame(scene) {
     gameOver = true;
-    player.setVelocity(0);
-    player.setTint(0x444444);
+    player.setVelocity(0).setTint(0x444444);
     player.body.enable = false;
-    
-    const gameOverText = scene.add.text(
-        scene.scale.width / 2, 
-        scene.scale.height / 2, 
-        `GAME OVER\n\nSCORE: ${score}\nWAVE: ${wave}\n\n[ 터치하여 재시작 ]`, 
-        { 
-            fontSize: '32px', 
-            fill: '#ff0000', 
-            align: 'center',
-            fontFamily: 'Arial',
-            fontWeight: 'bold',
-            backgroundColor: '#000000cc',
-            padding: { x: 20, y: 20 }
-        }
+    scene.add.text(scene.scale.width / 2, scene.scale.height / 2, 
+        `GAME OVER\n\nSCORE: ${score}\n[ 터치하여 재시작 ]`, 
+        { fontSize: '32px', fill: '#f00', align: 'center', backgroundColor: '#000000cc', padding: 20 }
     ).setOrigin(0.5).setDepth(200);
 }
 
 function restartGame(scene) {
-    gameOver = false;
-    playerHP = 3;
-    score = 0;
-    wave = 1;
-    lastFired = 0;
-    
-    bullets.clear(true, true);
-    enemyBullets.clear(true, true);
-    aliens.clear(true, true);
-    items.clear(true, true);
-    
-    scene.children.list.forEach(child => {
-        if (child.type === 'Text' && child.depth === 200) {
-            child.destroy();
-        }
-    });
-    
-    if (player) {
-        player.clearTint();
-        player.body.enable = true;
-        player.setPosition(scene.scale.width / 2, scene.scale.height - 80);
-        player.setVelocity(0);
-    }
-    
-    hpText.setText(`HP: ❤️ ${playerHP}`);
-    scoreText.setText(`SCORE: ${score}`);
-    waveText.setText(`WAVE: ${wave}`);
-    
+    gameOver = false; playerHP = 3; score = 0; wave = 1; lastFired = 0;
+    bullets.clear(true, true); enemyBullets.clear(true, true); aliens.clear(true, true); items.clear(true, true);
+    scene.children.list.filter(c => c.depth === 200).forEach(c => c.destroy());
+    player.clearTint(); player.body.enable = true;
+    player.setPosition(scene.scale.width / 2, scene.scale.height - 80);
+    hpText.setText(`HP: ❤️ ${playerHP}`); scoreText.setText(`SCORE: ${score}`); waveText.setText(`WAVE: ${wave}`);
     createWave(scene);
 }
