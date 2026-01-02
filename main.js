@@ -37,12 +37,15 @@ function create() {
     cursors = this.input.keyboard.createCursorKeys();
     fireButton = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     
-    // 배경 설정 (별 밀도 및 투명도 조절)
+    // [배경 수정] 별을 훨씬 더 드문드문하게 설정
     starfield = this.add.tileSprite(0, 0, this.scale.width, this.scale.height, 'star');
     starfield.setOrigin(0, 0).setDepth(-1);
-    starfield.tileScaleX = 1.5; // 숫자를 키울수록 별이 더 띄엄띄엄 보입니다.
-    starfield.tileScaleY = 1.5;
-    starfield.alpha = 0.6;      // 숫자를 낮출수록(0.1~1.0) 별이 흐려집니다.
+    
+    // 밀도 낮추기: 스케일을 3배로 키워 별 사이의 물리적 거리를 넓힘
+    starfield.tileScaleX = 3.0; 
+    starfield.tileScaleY = 3.0;
+    // 투명도 낮추기: 배경이 너무 튀지 않게 조절
+    starfield.alpha = 0.4;
 
     particles = this.add.particles(0, 0, 'bullet', {
         speed: { min: -100, max: 100 },
@@ -86,7 +89,8 @@ function create() {
 
 function update() {
     if (gameOver) return;
-    if (starfield) starfield.tilePositionY -= 1.0; // 배경 속도도 조금 늦췄습니다.
+    // 배경 흐르는 속도 (부드럽게 조절)
+    if (starfield) starfield.tilePositionY -= 0.8;
 
     let isMoving = false;
     const moveSpeed = 450;
