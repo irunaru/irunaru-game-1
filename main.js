@@ -11,6 +11,10 @@ const config = {
         default: 'arcade',
         arcade: { gravity: { y: 0 }, debug: false }
     },
+    // Safari의 입력 지연을 줄이기 위한 설정
+    input: {
+        activePointers: 3 
+    },
     scene: { preload, create, update }
 };
 
@@ -48,8 +52,9 @@ function create() {
     cursors = this.input.keyboard.createCursorKeys();
     fireButton = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
-    // 4. [중요] 모바일 터치 발사 - 화면 어디든 터치하면 발사
-    this.input.on('pointerdown', () => {
+    // 4. [Safari 대응] 터치 이벤트 리스너 강화
+    // 'pointerdown'뿐만 아니라 'pointerdown' 시점에 엔진을 활성화
+    this.input.on('pointerdown', (pointer) => {
         if (gameOver) { restartGame(this); return; }
         fireBullet();
     });
@@ -67,16 +72,18 @@ function create() {
 
     this.scale.on('resize', (gameSize) => {
         player.setPosition(gameSize.width / 2, gameSize.height - 80);
+        if (gameOverText) gameOverText.setPosition(gameSize.width / 2, gameSize.height / 2);
     });
 }
 
 function update() {
     if (gameOver) return;
 
+    // activePointer 대신 전역 pointer 사용으로 Safari 호환성 증대
     const pointer = this.input.activePointer;
     const width = this.scale.width;
 
-    // 이동 로직 (PC/모바일 통합)
+    // 이동 로직 (화면 하단을 터치하고 있을 때 이동)
     if (cursors.left.isDown || (pointer.isDown && pointer.x < width / 2)) {
         player.setVelocityX(-450);
     } else if (cursors.right.isDown || (pointer.isDown && pointer.x >= width / 2)) {
@@ -85,7 +92,7 @@ function update() {
         player.setVelocityX(0);
     }
 
-    // PC 발사 (스페이스바)
+    // PC 발사
     if (Phaser.Input.Keyboard.JustDown(fireButton)) { fireBullet(); }
 
     // 오브젝트 정리
@@ -93,7 +100,7 @@ function update() {
     cleanupObjects(enemyBulletsIru, (obj) => obj.y > this.scale.height + 50);
     cleanupObjects(enemyBulletsNaru, (obj) => obj.y > this.scale.height + 50);
 
-    // 적 행동
+    // 적 행동 로직
     const time = this.time.now * 0.002;
     enemyFireTimer += this.game.loop.delta;
 
@@ -111,7 +118,7 @@ function update() {
         }
     });
 
-    // 적 공격
+    // 적 공격 시스템
     if (enemyFireTimer > 800) {
         enemyFireTimer = 0;
         const activeAliens = aliens.getChildren().filter(a => a.active);
