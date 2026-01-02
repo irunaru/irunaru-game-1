@@ -18,12 +18,10 @@ const config = {
 const game = new Phaser.Game(config);
 
 let player, aliens, bullets, enemyBullets, items, particles;
-let cursors, fireButton;
+let cursors, fireButton, starfield;
 let lastFired = 0, nextEnemyFire = 0; 
 let score = 0, playerHP = 3, wave = 1, gameOver = false;
-let hpText, scoreText, waveText;
-let bulletToggle = false;
-let starfield; 
+let hpText, scoreText, waveText, bulletToggle = false;
 
 function preload() {
     this.load.image('player', 'assets/player.png');
@@ -32,26 +30,19 @@ function preload() {
     this.load.image('heart', 'assets/heart.png');
     this.load.image('bullet_iru', 'assets/bullet_alien_iru.png');
     this.load.image('bullet_naru', 'assets/bullet_alien_naru.png');
-    this.load.image('star', 'assets/star.png'); 
+    this.load.image('star', 'assets/star.png');
 }
 
 function create() {
     cursors = this.input.keyboard.createCursorKeys();
     fireButton = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     
-    // 별 이미지 없을 경우 자동 생성
-    if (!this.textures.exists('star')) {
-        const graphics = this.make.graphics({ x: 0, y: 0, add: false });
-        graphics.fillStyle(0xffffff, 1);
-        graphics.fillCircle(1, 1, 1);
-        graphics.generateTexture('star', 2, 2);
-        graphics.destroy();
-    }
-
-    // 배경 타일 설정 (화면 크기에 딱 맞게)
+    // 배경 설정 (별 밀도 및 투명도 조절)
     starfield = this.add.tileSprite(0, 0, this.scale.width, this.scale.height, 'star');
-    starfield.setOrigin(0, 0);
-    starfield.setDepth(-1);
+    starfield.setOrigin(0, 0).setDepth(-1);
+    starfield.tileScaleX = 1.5; // 숫자를 키울수록 별이 더 띄엄띄엄 보입니다.
+    starfield.tileScaleY = 1.5;
+    starfield.alpha = 0.6;      // 숫자를 낮출수록(0.1~1.0) 별이 흐려집니다.
 
     particles = this.add.particles(0, 0, 'bullet', {
         speed: { min: -100, max: 100 },
@@ -86,24 +77,25 @@ function create() {
     });
 
     this.scale.on('resize', (gameSize) => {
-        if (starfield) starfield.setSize(gameSize.width, gameSize.height);
+        if (starfield) {
+            starfield.setSize(gameSize.width, gameSize.height);
+        }
         if (player && player.active) player.setPosition(gameSize.width / 2, gameSize.height - 80);
     });
 }
 
 function update() {
     if (gameOver) return;
-
-    if (starfield) starfield.tilePositionY -= 1.5;
+    if (starfield) starfield.tilePositionY -= 1.0; // 배경 속도도 조금 늦췄습니다.
 
     let isMoving = false;
     const moveSpeed = 450;
     const currentTime = this.time.now;
 
-    if (cursors.left.isDown || (this.input.activePointer.isDown && this.input.activePointer.isDown && this.input.activePointer.x < this.scale.width / 2)) {
+    if (cursors.left.isDown || (this.input.activePointer.isDown && this.input.activePointer.x < this.scale.width / 2)) {
         player.setVelocityX(-moveSpeed);
         isMoving = true;
-    } else if (cursors.right.isDown || (this.input.activePointer.isDown && this.input.activePointer.isDown && this.input.activePointer.x >= this.scale.width / 2)) {
+    } else if (cursors.right.isDown || (this.input.activePointer.isDown && this.input.activePointer.x >= this.scale.width / 2)) {
         player.setVelocityX(moveSpeed);
         isMoving = true;
     }
@@ -141,7 +133,10 @@ function fireBullet(scene) {
     if (!player || !player.active || scene.time.now - lastFired < 200) return;
     lastFired = scene.time.now;
     const b = bullets.get(player.x, player.y - 40);
-    if (b) { b.setActive(true).setVisible(true).body.enable = true; b.setVelocityY(-800); }
+    if (b) {
+        b.setActive(true).setVisible(true).body.enable = true;
+        b.setVelocityY(-800);
+    }
 }
 
 function destroyAlien(bullet, alien) {
