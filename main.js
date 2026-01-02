@@ -27,9 +27,10 @@ function preload() {
     this.load.image('player', 'assets/player.png');
     this.load.image('alien', 'assets/alien.png');
     this.load.image('bullet', 'assets/bullet.png');
-    this.load.image('bullet_iru', 'assets/bullet_alien_iru.png');
-    // 드디어 준비하신 하트 이미지를 로드합니다!
     this.load.image('heart', 'assets/heart.png');
+    // 이루와 나루 이미지를 모두 불러옵니다
+    this.load.image('bullet_iru', 'assets/bullet_alien_iru.png');
+    this.load.image('bullet_naru', 'assets/bullet_alien_naru.png');
 }
 
 function create() {
@@ -54,7 +55,8 @@ function create() {
 
     aliens = this.physics.add.group();
     bullets = this.physics.add.group({ defaultKey: 'bullet', maxSize: 30 });
-    enemyBullets = this.physics.add.group({ defaultKey: 'bullet_iru', maxSize: 20 });
+    // 적 총알 그룹 (특정 key를 지정하지 않고 동적으로 생성)
+    enemyBullets = this.physics.add.group();
     items = this.physics.add.group();
 
     createWave(this);
@@ -101,11 +103,13 @@ function update() {
 }
 
 function enemyShoot(scene, alien) {
-    if (enemyBullets.countActive(true) >= 5) return; 
+    if (enemyBullets.countActive(true) >= 6) return; 
 
-    const b = enemyBullets.get(alien.x, alien.y + 40);
+    // 이루와 나루 중 랜덤 선택
+    const bulletKey = Math.random() < 0.5 ? 'bullet_iru' : 'bullet_naru';
+    
+    const b = enemyBullets.create(alien.x, alien.y + 40, bulletKey);
     if (b) {
-        b.setActive(true).setVisible(true).body.enable = true;
         b.setVelocityY(200 + (wave * 15));
         b.setScale(0.5); 
         b.body.setSize(30, 30); 
@@ -125,11 +129,10 @@ function destroyAlien(bullet, alien) {
     score += 10;
     scoreText.setText(`SCORE: ${score}`);
     
-    // 외계인이 죽을 때 하트 아이템 생성 (15% 확률)
     if (Math.random() < 0.15) {
         const h = items.create(alien.x, alien.y, 'heart');
         h.setVelocityY(200);
-        h.setScale(0.8); // 준비하신 하트 이미지 크기에 맞게 조정
+        h.setScale(0.8);
     }
     
     alien.destroy();
