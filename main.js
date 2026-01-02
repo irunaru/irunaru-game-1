@@ -11,10 +11,7 @@ const config = {
         default: 'arcade',
         arcade: { gravity: { y: 0 }, debug: false }
     },
-    input: {
-        activePointers: 3,
-        keyboard: true 
-    },
+    input: { activePointers: 3, keyboard: true },
     scene: { preload, create, update }
 };
 
@@ -22,68 +19,50 @@ const game = new Phaser.Game(config);
 
 let player, aliens, bullets, enemyBullets, items, particles;
 let cursors, fireButton;
-let lastFired = 0, score = 0, playerHP = 3, wave = 1;
-let hpText, scoreText, waveText, gameOver = false;
+let lastFired = 0, nextEnemyFire = 0; 
+let score = 0, playerHP = 3, wave = 1, gameOver = false;
+let hpText, scoreText, waveText;
 
 function preload() {
     this.load.image('player', 'assets/player.png');
     this.load.image('alien', 'assets/alien.png');
     this.load.image('bullet', 'assets/bullet.png');
     this.load.image('bullet_iru', 'assets/bullet_alien_iru.png');
+    // 드디어 준비하신 하트 이미지를 로드합니다!
+    this.load.image('heart', 'assets/heart.png');
 }
 
 function create() {
-    // 1. 키보드 설정 및 포커스 획득
     cursors = this.input.keyboard.createCursorKeys();
     fireButton = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     
-    // 게임 화면 클릭 시 브라우저 포커스를 게임으로 고정 (PC 키보드 필수)
     this.input.on('pointerdown', () => {
-        if (!game.input.keyboard.enabled) game.input.keyboard.enabled = true;
+        if (gameOver) { restartGame(this); return; }
         window.focus();
+        fireBullet(this);
     });
 
-    // 2. 하트 텍스처 생성
-    const graphics = this.make.graphics({ x: 0, y: 0, add: false });
-    graphics.fillStyle(0xff0000, 1);
-    graphics.fillCircle(10, 10, 10); 
-    graphics.generateTexture('heart', 20, 20);
-    graphics.destroy();
-
-    // 3. 파티클 설정
     particles = this.add.particles(0, 0, 'bullet', {
         speed: { min: -100, max: 100 },
         scale: { start: 0.5, end: 0 },
-        lifespan: 500,
+        lifespan: 400,
         frequency: -1
     });
 
-    // 4. 물리 객체 그룹
     player = this.physics.add.sprite(this.scale.width / 2, this.scale.height - 80, 'player');
     player.setCollideWorldBounds(true);
 
     aliens = this.physics.add.group();
     bullets = this.physics.add.group({ defaultKey: 'bullet', maxSize: 30 });
-    enemyBullets = this.physics.add.group({ defaultKey: 'bullet_iru', maxSize: 50 });
+    enemyBullets = this.physics.add.group({ defaultKey: 'bullet_iru', maxSize: 20 });
     items = this.physics.add.group();
 
     createWave(this);
 
-    // 5. 터치/클릭 발사
-    this.input.on('pointerdown', (pointer) => {
-        if (gameOver) { 
-            restartGame(this);
-            return; 
-        }
-        fireBullet(this);
-    });
-
-    // 6. 충돌 판정
     this.physics.add.overlap(bullets, aliens, destroyAlien, null, this);
     this.physics.add.overlap(enemyBullets, player, damagePlayer, null, this);
     this.physics.add.overlap(items, player, collectItem, null, this);
 
-    // 7. UI
     const style = { fontSize: '22px', fill: '#fff', fontFamily: 'Arial', fontWeight: 'bold' };
     hpText = this.add.text(20, 20, `HP: ❤️ ${playerHP}`, style).setDepth(100);
     scoreText = this.add.text(20, 50, `SCORE: ${score}`, style).setDepth(100);
@@ -95,55 +74,49 @@ function update() {
 
     let isMoving = false;
     const moveSpeed = 450;
+    const currentTime = this.time.now;
 
-    // PC 방향키 우선 체크
-    if (cursors.left.isDown) {
+    if (cursors.left.isDown || (this.input.activePointer.isDown && this.input.activePointer.x < this.scale.width / 2)) {
         player.setVelocityX(-moveSpeed);
         isMoving = true;
-    } else if (cursors.right.isDown) {
+    } else if (cursors.right.isDown || (this.input.activePointer.isDown && this.input.activePointer.x >= this.scale.width / 2)) {
         player.setVelocityX(moveSpeed);
         isMoving = true;
-    } 
-    // 터치 이동 체크 (방향키 안 누를 때)
-    else if (this.input.activePointer.isDown) {
-        if (this.input.activePointer.x < this.scale.width / 2) {
-            player.setVelocityX(-moveSpeed);
-        } else {
-            player.setVelocityX(moveSpeed);
-        }
-        isMoving = true;
     }
-
     if (!isMoving) player.setVelocityX(0);
+    if (Phaser.Input.Keyboard.JustDown(fireButton)) fireBullet(this);
 
-    // PC 스페이스바 발사
-    if (Phaser.Input.Keyboard.JustDown(fireButton)) {
-        fireBullet(this);
-    }
-
-    // 오브젝트 정리
-    bullets.children.each(b => { if (b.active && b.y < -50) b.disableBody(true, true); });
-    enemyBullets.children.each(b => { if (b.active && b.y > this.scale.height + 50) b.disableBody(true, true); });
-
-    // 적 행동 로직
     aliens.children.each(alien => {
         if (!alien.active) return;
-        alien.y += 0.3 + (wave * 0.1); 
-        if (Math.random() < 0.003 + (wave * 0.001)) enemyShoot(this, alien);
+        alien.y += 0.2 + (wave * 0.05);
+        if (currentTime > nextEnemyFire && Math.random() < 0.01) {
+            enemyShoot(this, alien);
+            nextEnemyFire = currentTime + Math.max(1200 - (wave * 50), 500);
+        }
         if (alien.y > this.scale.height) endGame(this);
     });
+
+    bullets.children.each(b => { if (b.active && b.y < -50) b.disableBody(true, true); });
+    enemyBullets.children.each(b => { if (b.active && b.y > this.scale.height + 50) b.disableBody(true, true); });
+}
+
+function enemyShoot(scene, alien) {
+    if (enemyBullets.countActive(true) >= 5) return; 
+
+    const b = enemyBullets.get(alien.x, alien.y + 40);
+    if (b) {
+        b.setActive(true).setVisible(true).body.enable = true;
+        b.setVelocityY(200 + (wave * 15));
+        b.setScale(0.5); 
+        b.body.setSize(30, 30); 
+    }
 }
 
 function fireBullet(scene) {
-    if (!player || !player.active) return;
-    if (scene.time.now - lastFired < 200) return;
+    if (!player || !player.active || scene.time.now - lastFired < 200) return;
     lastFired = scene.time.now;
-    
     const b = bullets.get(player.x, player.y - 40);
-    if (b) {
-        b.setActive(true).setVisible(true).body.enable = true;
-        b.setVelocityY(-800);
-    }
+    if (b) { b.setActive(true).setVisible(true).body.enable = true; b.setVelocityY(-800); }
 }
 
 function destroyAlien(bullet, alien) {
@@ -152,15 +125,15 @@ function destroyAlien(bullet, alien) {
     score += 10;
     scoreText.setText(`SCORE: ${score}`);
     
+    // 외계인이 죽을 때 하트 아이템 생성 (15% 확률)
     if (Math.random() < 0.15) {
-        const heart = items.create(alien.x, alien.y, 'heart');
-        heart.setVelocityY(200);
+        const h = items.create(alien.x, alien.y, 'heart');
+        h.setVelocityY(200);
+        h.setScale(0.8); // 준비하신 하트 이미지 크기에 맞게 조정
     }
     
     alien.destroy();
-    if (aliens.countActive(true) === 0) {
-        nextWave(this); // this로 수정
-    }
+    if (aliens.countActive(true) === 0) nextWave(this);
 }
 
 function damagePlayer(p, b) {
@@ -179,8 +152,8 @@ function collectItem(p, i) {
 }
 
 function createWave(scene) {
-    const rows = Math.min(3 + Math.floor(wave / 3), 6);
-    const cols = Math.floor(scene.scale.width / 80);
+    const rows = Math.min(3 + Math.floor(wave / 3), 5);
+    const cols = Math.floor(scene.scale.width / 85);
     const startX = (scene.scale.width - (cols - 1) * 70) / 2;
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
@@ -197,27 +170,18 @@ function nextWave(scene) {
     scene.time.delayedCall(1500, () => { msg.destroy(); createWave(scene); });
 }
 
-function enemyShoot(scene, alien) {
-    const b = enemyBullets.get(alien.x, alien.y + 20);
-    if (b) {
-        b.setActive(true).setVisible(true).body.enable = true;
-        b.setVelocityY(300 + (wave * 20));
-        b.setTint(0xffff00);
-    }
-}
-
 function endGame(scene) {
     gameOver = true;
     player.setVelocity(0).setTint(0x444444);
     player.body.enable = false;
     scene.add.text(scene.scale.width / 2, scene.scale.height / 2, 
-        `GAME OVER\n\nSCORE: ${score}\n[ 터치하여 재시작 ]`, 
+        `GAME OVER\n\nSCORE: ${score}\n[ 클릭하여 재시작 ]`, 
         { fontSize: '32px', fill: '#f00', align: 'center', backgroundColor: '#000000cc', padding: 20 }
     ).setOrigin(0.5).setDepth(200);
 }
 
 function restartGame(scene) {
-    gameOver = false; playerHP = 3; score = 0; wave = 1; lastFired = 0;
+    gameOver = false; playerHP = 3; score = 0; wave = 1; lastFired = 0; nextEnemyFire = 0;
     bullets.clear(true, true); enemyBullets.clear(true, true); aliens.clear(true, true); items.clear(true, true);
     scene.children.list.filter(c => c.depth === 200).forEach(c => c.destroy());
     player.clearTint(); player.body.enable = true;
