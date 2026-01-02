@@ -2,7 +2,7 @@ const config = {
     type: Phaser.AUTO,
     width: window.innerWidth,
     height: window.innerHeight,
-    backgroundColor: '#000000',
+    backgroundColor: '#050505',
     scale: {
         mode: Phaser.Scale.RESIZE,
         autoCenter: Phaser.Scale.CENTER_BOTH
@@ -11,250 +11,191 @@ const config = {
         default: 'arcade',
         arcade: { gravity: { y: 0 }, debug: false }
     },
-    input: {
-        activePointers: 3 
-    },
+    input: { activePointers: 3 },
     scene: { preload, create, update }
 };
 
 const game = new Phaser.Game(config);
 
-let player, aliens, bullets, enemyBulletsIru, enemyBulletsNaru;
-let cursors, fireButton;
-let lastFired = 0;
-let playerHP = 3, score = 0, wave = 1, gameOver = false;
-let hpText, scoreText, waveText, gameOverText;
-let enemyFireTimer = 0;
+let player, aliens, bullets, enemyBullets, items, particles;
+let lastFired = 0, score = 0, playerHP = 3, wave = 1, combo = 0;
+let hpText, scoreText, waveText, comboText, gameOver = false;
 
 function preload() {
+    // 기존 이미지 로드
     this.load.image('player', 'assets/player.png');
     this.load.image('alien', 'assets/alien.png');
     this.load.image('bullet', 'assets/bullet.png');
     this.load.image('bullet_iru', 'assets/bullet_alien_iru.png');
     this.load.image('bullet_naru', 'assets/bullet_alien_naru.png');
+    // 아이템 이미지 (없을 경우를 대비해 흰색 사각형으로 대체 가능)
+    this.load.image('heart', 'assets/heart.png'); 
 }
 
 function create() {
-    // 1. 플레이어 생성
+    // 1. 파티클(폭발) 매니저 설정
+    particles = this.add.particles(0, 0, 'bullet', {
+        speed: { min: -100, max: 100 },
+        angle: { min: 0, max: 360 },
+        scale: { start: 0.5, end: 0 },
+        blendMode: 'ADD',
+        active: false
+    });
+
+    // 2. 그룹 초기화
     player = this.physics.add.sprite(this.scale.width / 2, this.scale.height - 80, 'player');
     player.setCollideWorldBounds(true);
 
-    // 2. 그룹 설정
     aliens = this.physics.add.group();
     bullets = this.physics.add.group({ defaultKey: 'bullet', maxSize: 30 });
-    enemyBulletsIru = this.physics.add.group({ defaultKey: 'bullet_iru', maxSize: 20 });
-    enemyBulletsNaru = this.physics.add.group({ defaultKey: 'bullet_naru', maxSize: 20 });
+    enemyBullets = this.physics.add.group();
+    items = this.physics.add.group();
 
     createWave(this);
 
-    // 3. 입력 설정
-    cursors = this.input.keyboard.createCursorKeys();
-    fireButton = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-
-    // 4. Safari 대응 터치 이벤트
+    // 3. 입력 감지 (Safari 최적화)
     this.input.on('pointerdown', (pointer) => {
-        if (gameOver) { 
-            restartGame(this); 
-            return; 
-        }
+        if (gameOver) { restartGame(this); return; }
         fireBullet(this);
     });
 
-    // 5. 충돌 설정
-    this.physics.add.overlap(bullets, aliens, hitAlien, null, this);
-    this.physics.add.overlap(enemyBulletsIru, player, hitPlayer, null, this);
-    this.physics.add.overlap(enemyBulletsNaru, player, hitPlayer, null, this);
+    // 4. 충돌 판정
+    this.physics.add.overlap(bullets, aliens, destroyAlien, null, this);
+    this.physics.add.overlap(enemyBullets, player, damagePlayer, null, this);
+    this.physics.add.overlap(items, player, collectItem, null, this);
+    this.physics.add.overlap(aliens, player, damagePlayer, null, this);
 
-    // 6. UI 생성
-    const textStyle = { fontSize: '24px', fill: '#fff', fontFamily: 'Arial', fontWeight: 'bold' };
-    hpText = this.add.text(20, 20, `HP: ${playerHP}`, textStyle).setDepth(100);
-    scoreText = this.add.text(20, 55, `Score: ${score}`, textStyle).setDepth(100);
-    waveText = this.add.text(20, 90, `Wave: ${wave}`, textStyle).setDepth(100);
-
-    this.scale.on('resize', (gameSize) => {
-        player.setPosition(gameSize.width / 2, gameSize.height - 80);
-        if (gameOverText) gameOverText.setPosition(gameSize.width / 2, gameSize.height / 2);
-    });
+    // 5. UI 설정
+    const style = { fontSize: '22px', fill: '#fff', fontFamily: 'Arial Black' };
+    hpText = this.add.text(20, 20, `HP: ❤️ ${playerHP}`, style);
+    scoreText = this.add.text(20, 50, `SCORE: ${score}`, style);
+    waveText = this.add.text(this.scale.width - 20, 20, `WAVE: ${wave}`, style).setOrigin(1, 0);
+    comboText = this.add.text(this.scale.width / 2, 100, '', { fontSize: '40px', fill: '#ff0', fontFamily: 'Arial Black' }).setOrigin(0.5).setAlpha(0);
 }
 
 function update() {
     if (gameOver) return;
 
+    // 조작 로직
     const pointer = this.input.activePointer;
-    const width = this.scale.width;
-
-    // 이동 로직
-    if (cursors.left.isDown || (pointer.isDown && pointer.x < width / 2)) {
-        player.setVelocityX(-450);
-    } else if (cursors.right.isDown || (pointer.isDown && pointer.x >= width / 2)) {
-        player.setVelocityX(450);
+    if (pointer.isDown) {
+        if (pointer.x < this.scale.width / 2) player.setVelocityX(-450);
+        else player.setVelocityX(450);
     } else {
         player.setVelocityX(0);
     }
 
-    // PC 발사
-    if (Phaser.Input.Keyboard.JustDown(fireButton)) { 
-        fireBullet(this); 
-    }
-
-    // 오브젝트 정리
-    cleanupObjects(bullets, (obj) => obj.y < -50);
-    cleanupObjects(enemyBulletsIru, (obj) => obj.y > this.scale.height + 50);
-    cleanupObjects(enemyBulletsNaru, (obj) => obj.y > this.scale.height + 50);
-
-    // 적 행동 로직
-    const time = this.time.now * 0.002;
-    enemyFireTimer += this.game.loop.delta;
-
+    // 적 행동 (웨이브 이동 + 사격)
     aliens.children.each(alien => {
-        if (!alien || !alien.active) return;
-        if (!alien.diving) {
-            alien.setVelocityX(Math.sin(time + alien.waveOffset) * 120);
-            alien.setVelocityY(25);
-            if (Math.random() < 0.001 + (wave * 0.0002)) {
-                alien.diving = true;
-                this.physics.moveToObject(alien, player, 350 + (wave * 10));
-            }
-        } else if (alien.y > this.scale.height + 50) {
-            alien.destroy();
-        }
+        if (!alien.active) return;
+        alien.y += 0.5 + (wave * 0.1); // 서서히 내려옴
+        if (Math.random() < 0.005 + (wave * 0.001)) enemyShoot(this, alien);
+        if (alien.y > this.scale.height) endGame(this); // 바닥에 닿으면 게임오버
     });
 
-    // 적 공격 시스템
-    if (enemyFireTimer > 800) {
-        enemyFireTimer = 0;
-        const activeAliens = aliens.getChildren().filter(a => a.active);
-        if (activeAliens.length > 0) {
-            const randomAlien = Phaser.Utils.Array.GetRandom(activeAliens);
-            if (Math.random() < 0.4) enemyFire(this, randomAlien);
-        }
-    }
-
-    if (aliens.countActive(true) === 0) { 
-        nextWave(this); 
-    }
+    // 화면 밖 오브젝트 정리
+    bullets.children.each(b => { if (b.y < 0) b.disableBody(true, true); });
 }
 
 function fireBullet(scene) {
-    if (!player || !player.active || gameOver) return;
-    const time = game.loop.time;
-    if (time - lastFired < 200) return;
-    lastFired = time;
+    if (scene.time.now - lastFired < 200) return;
+    lastFired = scene.time.now;
 
-    const bullet = bullets.get(player.x, player.y - 30);
-    if (bullet) {
-        bullet.setActive(true).setVisible(true);
-        bullet.body.enable = true;
-        bullet.setVelocityY(-700);
+    const b = bullets.get(player.x, player.y - 40);
+    if (b) {
+        b.setActive(true).setVisible(true).body.enable = true;
+        b.setVelocityY(-800);
     }
 }
 
-function enemyFire(scene, alien) {
-    const group = Math.random() < 0.5 ? enemyBulletsIru : enemyBulletsNaru;
-    const bullet = group.get(alien.x, alien.y + 20);
-    if (bullet) {
-        bullet.setActive(true).setVisible(true);
-        bullet.body.enable = true;
-        scene.physics.moveToObject(bullet, player, 300 + (wave * 5));
-    }
-}
-
-function cleanupObjects(group, condition) {
-    group.children.each(obj => {
-        if (obj.active && condition(obj)) obj.disableBody(true, true);
-    });
-}
-
-function hitAlien(bullet, alien) {
+function destroyAlien(bullet, alien) {
     bullet.disableBody(true, true);
+    
+    // 폭발 효과
+    particles.emitParticleAt(alien.x, alien.y, 10);
+    this.cameras.main.shake(100, 0.01); // 화면 흔들림
+
+    // 점수 및 콤보
+    combo++;
+    score += 10 * combo;
+    scoreText.setText(`SCORE: ${score}`);
+    showComboEffect(this);
+
+    // 아이템 드랍 (10% 확률)
+    if (Math.random() < 0.1) {
+        const item = items.create(alien.x, alien.y, 'heart');
+        item.setVelocityY(200);
+    }
+
     alien.destroy();
-    score += 10;
-    scoreText.setText(`Score: ${score}`);
+    if (aliens.countActive() === 0) nextWave(this);
 }
 
-function hitPlayer(p, bullet) {
-    bullet.disableBody(true, true);
+function damagePlayer(player, attacker) {
+    attacker.destroy ? attacker.destroy() : attacker.disableBody(true, true);
+    
     playerHP--;
-    hpText.setText(`HP: ${playerHP}`);
-    p.setTint(0xff0000);
-    p.scene.time.delayedCall(150, () => { 
-        if (p.active) p.clearTint(); 
+    combo = 0; // 피격 시 콤보 초기화
+    hpText.setText(`HP: ❤️ ${playerHP}`);
+    this.cameras.main.flash(200, 255, 0, 0); // 빨간색 번쩍임
+
+    if (playerHP <= 0) endGame(this);
+}
+
+function collectItem(player, item) {
+    item.destroy();
+    playerHP = Math.min(playerHP + 1, 5); // 최대 HP 5
+    hpText.setText(`HP: ❤️ ${playerHP}`);
+}
+
+function showComboEffect(scene) {
+    if (combo < 2) return;
+    comboText.setText(`${combo} COMBO!`).setAlpha(1);
+    scene.tweens.add({
+        targets: comboText,
+        alpha: 0,
+        y: 80,
+        duration: 800,
+        onComplete: () => { comboText.setY(100); }
     });
-    if (playerHP <= 0) { 
-        endGame(p.scene); 
-    }
 }
 
 function createWave(scene) {
-    const rows = Math.min(2 + wave, 6);
     const cols = Math.floor(scene.scale.width / 80);
-    const startX = scene.scale.width / 2 - (cols - 1) * 30;
+    const rows = Math.min(2 + wave, 5);
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-            const alien = aliens.create(startX + c * 60, 100 + r * 50, 'alien');
-            alien.waveOffset = Math.random() * Math.PI * 2;
-            alien.diving = false;
+            const x = 60 + (c * 70);
+            const y = 80 + (r * 60);
+            const alien = aliens.create(x, y, 'alien');
+            alien.setOrigin(0.5);
         }
     }
 }
 
 function nextWave(scene) {
-    aliens.clear(true, true);
     wave++;
-    waveText.setText(`Wave: ${wave}`);
-    const msg = scene.add.text(
-        scene.scale.width / 2, 
-        scene.scale.height / 2, 
-        `WAVE ${wave - 1} CLEAR!`, 
-        { fontSize: '40px', fill: '#ffff00' }
-    ).setOrigin(0.5);
-    scene.time.delayedCall(1500, () => { 
-        msg.destroy(); 
-        createWave(scene); 
-    });
+    waveText.setText(`WAVE: ${wave}`);
+    scene.time.delayedCall(1000, () => createWave(scene));
+}
+
+function enemyShoot(scene, alien) {
+    const b = enemyBullets.create(alien.x, alien.y, 'bullet_iru');
+    if (b) {
+        b.setVelocityY(300 + (wave * 20));
+        b.setTint(0xffaa00);
+    }
 }
 
 function endGame(scene) {
     gameOver = true;
-    player.setTint(0x444444);
-    player.setVelocity(0);
-    player.body.enable = false;
-    gameOverText = scene.add.text(
-        scene.scale.width / 2, 
-        scene.scale.height / 2, 
-        `GAME OVER\n\nScore: ${score}\nWave: ${wave}\n\n[ 터치하여 재시작 ]`, 
-        { 
-            fontSize: '32px', 
-            fill: '#ff0000', 
-            align: 'center', 
-            backgroundColor: '#000000cc', 
-            padding: 20 
-        }
-    ).setOrigin(0.5).setDepth(200);
+    scene.physics.pause();
+    player.setTint(0xff0000);
+    const centerX = scene.scale.width / 2;
+    const centerY = scene.scale.height / 2;
+    gameOverText = scene.add.text(centerX, centerY, 'GAME OVER\n터치하여 재시작', { fontSize: '40px', fill: '#f00', align: 'center' }).setOrigin(0.5);
 }
 
 function restartGame(scene) {
-    gameOver = false; 
-    playerHP = 3; 
-    score = 0; 
-    wave = 1; 
-    lastFired = 0; 
-    enemyFireTimer = 0;
-    
-    bullets.clear(true, true); 
-    enemyBulletsIru.clear(true, true); 
-    enemyBulletsNaru.clear(true, true); 
-    aliens.clear(true, true);
-    
-    if (gameOverText) gameOverText.destroy();
-    
-    player.clearTint(); 
-    player.body.enable = true;
-    player.setPosition(scene.scale.width / 2, scene.scale.height - 80);
-    
-    hpText.setText(`HP: ${playerHP}`); 
-    scoreText.setText(`Score: ${score}`); 
-    waveText.setText(`Wave: ${wave}`);
-    
-    createWave(scene);
+    location.reload(); // 가장 깔끔한 상태 초기화 방식
 }
